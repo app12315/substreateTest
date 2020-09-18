@@ -2,17 +2,22 @@
   "name": "Substrate Node template",
   "dockerFile": "Dockerfile",
   "settings": {
-    "terminal.integrated.shell.linux": "/bin/bash",
+    "terminal.integrated.shell.linux": "/bin/zsh",
     "lldb.executable": "/usr/bin/lldb"
   },
   "extensions": [
     "rust-lang.rust",
     "bungcip.better-toml",
-    "vadimcn.vscode-lldb"
+    "vadimcn.vscode-lldb",
+    "mutantdino.resourcemonitor",
+    "matklad.rust-analyzer",
+    "visualstudioexptteam.vscodeintellicode",
+    "dtsvet.vscode-wasm",
+    "dbaeumer.vscode-eslint",
+    "eamodio.gitlens",
+    "ritwickdey.liveserver",
+    "esbenp.prettier-vscode",
+    "mrmlnc.vscode-scss"
   ],
-  "forwardPorts": [
-    3000,
-    9944
-  ],
-  "image": "paritytech/substrate-playground-template-node-template:sha-c9fda53"
+  "forwardPorts": [3000, 9944]
 }
