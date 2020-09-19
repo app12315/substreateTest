@@ -35,6 +35,8 @@ decl_error! {
 		TransferUnderflowOfKiittyBalance,
 		YouCantBuyYourOwnKitty,
 		KittyIsNotForSale,
+		KittyOneNotExists,
+		KittyTowNotExists,
 	}
 }
 
@@ -249,6 +251,51 @@ decl_module! {
 
 			// Dispatch event
 			Self::deposit_event(RawEvent::Bought(sender, owner, kitty_id, kitty_price));
+			return Ok(());
+		}
+
+		#[weight = 20_000]
+		fn breed_kitty(origin, kitty_id_1: T::Hash, kitty_id_2: T::Hash) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			ensure!(Kitties::<T>::contains_key(kitty_id_1), Error::<T>::KittyOneNotExists);
+			ensure!(Kitties::<T>::contains_key(kitty_id_2), Error::<T>::KittyTowNotExists);
+
+			let nonce = Nonce::get();
+			let random_hash = <pallet_randomness_collective_flip::Module<T>>::random(
+				nonce.
+				using_encoded(<T as frame_system::Trait>::Hashing::hash)
+				.as_ref()
+			)
+			.using_encoded(<T as frame_system::Trait>::Hashing::hash);
+
+			let kitty_1 = Self::kitty(kitty_id_1);
+			let kitty_2 = Self::kitty(kitty_id_2);
+
+			let mut final_dna = kitty_1.dna;
+			for (i, (dna_2_element, r)) in kitty_2.dna.as_ref().iter().zip(random_hash.as_ref().iter()).enumerate() {
+				if r % 2 == 0 {
+					final_dna.as_mut()[i] = *dna_2_element;
+				}
+			}
+
+			let new_gen;
+			if kitty_1.gen > kitty_2.gen {
+				new_gen = kitty_1.gen + 1;
+			} else {
+				new_gen = kitty_2.gen + 1;
+			}
+
+			let new_kitty = Kitty {
+				id: random_hash,
+				dna: final_dna,
+				price: Into::<T::Balance>::into(0),
+				gen: new_gen.clone(),
+			};
+
+			Self::mint(sender, random_hash, new_kitty)?;
+
+			Nonce::mutate(|x| *x += 1);
 			return Ok(());
 		}
 	}
