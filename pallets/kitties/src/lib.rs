@@ -25,8 +25,11 @@ pub trait Trait: frame_system::Trait + pallet_balances::Trait {
 decl_error! {
 	pub enum Error for Module<T: Trait> {
 		KittyAlreadyExists,
+		KittyDoesNotExist,
 		OverflowAddingToAccountBalance,
 		OverflowAddingToTotalSupply,
+		NoOwner,
+		YouAreNotTheOwner,
 	}
 }
 
@@ -35,9 +38,11 @@ decl_event! {
 	pub enum Event<T>
 	where
 		AccountId = <T as frame_system::Trait>::AccountId,
-		Hash = <T as frame_system::Trait>::Hash
+		Hash = <T as frame_system::Trait>::Hash,
+		Balance = <T as pallet_balances::Trait>::Balance
 	{
 		KittyCreated(AccountId, Hash),
+		PriceSet(AccountId, Hash, Balance),
 	}
 }
 
@@ -136,6 +141,25 @@ decl_module! {
 
 			Nonce::mutate(|x| *x += 1);
 
+			return Ok(());
+		}
+
+		#[weight = 10_000]
+		fn set_price(origin, kitty_id: T::Hash, new_price: T::Balance) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			ensure!(Kitties::<T>::contains_key(kitty_id), Error::<T>::KittyDoesNotExist);
+
+			let owner = Self::owner_of(kitty_id).ok_or(Error::<T>::NoOwner)?;
+			ensure!(owner == sender, Error::<T>::YouAreNotTheOwner);
+
+			let mut kitty = Self::kitty(kitty_id);
+			kitty.price = new_price;
+
+			Kitties::<T>::insert(kitty_id, kitty);
+
+			// Dispatch event
+			Self::deposit_event(RawEvent::PriceSet(sender,kitty_id, new_price));
 			return Ok(());
 		}
 	}
