@@ -30,6 +30,9 @@ decl_error! {
 		OverflowAddingToTotalSupply,
 		NoOwner,
 		YouAreNotTheOwner,
+		AccountIsNotTheOwner,
+		TransferOverflowOfKittyBalance,
+		TransferUnderflowOfKiittyBalance,
 	}
 }
 
@@ -43,6 +46,7 @@ decl_event! {
 	{
 		KittyCreated(AccountId, Hash),
 		PriceSet(AccountId, Hash, Balance),
+		Transferred(AccountId, AccountId, Hash),
 	}
 }
 
@@ -107,6 +111,43 @@ impl<T: Trait> Module<T> {
 		Self::deposit_event(RawEvent::KittyCreated(to, kitty_id));
 		return Ok(());
 	}
+
+	fn transfer_from(from: T::AccountId, to: T::AccountId, kitty_id: T::Hash) -> DispatchResult {
+		let owner = Self::owner_of(kitty_id).ok_or(Error::<T>::NoOwner)?;
+		ensure!(owner == from, Error::<T>::AccountIsNotTheOwner);
+
+		let owned_kitty_count_from = Self::owned_kitty_count(&from);
+		let owned_kitty_count_to = Self::owned_kitty_count(&to);
+
+		let new_owned_kitty_count_to = owned_kitty_count_to
+			.checked_add(1)
+			.ok_or(Error::<T>::TransferOverflowOfKittyBalance)?;
+
+		let new_owned_kitty_count_from = owned_kitty_count_from
+			.checked_sub(1)
+			.ok_or(Error::<T>::TransferUnderflowOfKiittyBalance)?;
+
+		let kitty_index = OwnedKittiesIndex::<T>::get(kitty_id);
+		if kitty_index != new_owned_kitty_count_from {
+			let last_kitty_id =
+				OwnedKittiesArray::<T>::get((from.clone(), new_owned_kitty_count_from));
+			OwnedKittiesArray::<T>::insert((from.clone(), kitty_index), last_kitty_id);
+			OwnedKittiesIndex::<T>::insert(last_kitty_id, kitty_index);
+		}
+
+		KittyOwner::<T>::insert(&kitty_id, &to);
+		OwnedKittiesIndex::<T>::insert(kitty_id, owned_kitty_count_to);
+
+		OwnedKittiesArray::<T>::remove((from.clone(), new_owned_kitty_count_from));
+		OwnedKittiesArray::<T>::insert((to.clone(), owned_kitty_count_to), kitty_id);
+
+		OwnedKittiesCount::<T>::insert(&from, new_owned_kitty_count_from);
+		OwnedKittiesCount::<T>::insert(&to, new_owned_kitty_count_to);
+
+		// Dispatch event
+		Self::deposit_event(RawEvent::Transferred(from, to, kitty_id));
+		return Ok(());
+	}
 }
 
 // Public Functions =======================================
@@ -160,6 +201,18 @@ decl_module! {
 
 			// Dispatch event
 			Self::deposit_event(RawEvent::PriceSet(sender,kitty_id, new_price));
+			return Ok(());
+		}
+
+		#[weight = 10_000]
+		fn transfer(origin, to: T::AccountId, kitty_id: T::Hash) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			let owner = Self::owner_of(kitty_id).ok_or(Error::<T>::NoOwner)?;
+			ensure!(owner == sender, Error::<T>::YouAreNotTheOwner);
+
+			Self::transfer_from(sender, to, kitty_id)?;
+
 			return Ok(());
 		}
 	}
