@@ -7,7 +7,6 @@ use frame_support::{
 };
 use frame_system::ensure_signed;
 use sp_runtime::traits::Hash;
-use sp_std::vec::Vec;
 
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -117,8 +116,14 @@ decl_module! {
 		#[weight = 10_000]
 		fn create_kitty(origin) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
+			let nonce = Nonce::get();
 
-			let random_hash = <pallet_randomness_collective_flip::Module<T>>::random(&b"my context"[..]).using_encoded(<T as frame_system::Trait>::Hashing::hash);
+			let random_hash = <pallet_randomness_collective_flip::Module<T>>::random(
+				nonce.
+				using_encoded(<T as frame_system::Trait>::Hashing::hash)
+				.as_ref()
+			)
+			.using_encoded(<T as frame_system::Trait>::Hashing::hash);
 
 			let new_kitty = Kitty {
 				id: random_hash,
