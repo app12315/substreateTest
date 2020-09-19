@@ -3,7 +3,7 @@
 use frame_support::codec::{Decode, Encode};
 use frame_support::{
 	decl_error, decl_event, decl_module, decl_storage, dispatch::DispatchResult, ensure,
-	traits::Randomness, StorageMap, StorageValue,
+	traits::Currency, traits::ExistenceRequirement, traits::Randomness, StorageMap, StorageValue,
 };
 use frame_system::ensure_signed;
 use sp_runtime::traits::Hash;
@@ -33,6 +33,8 @@ decl_error! {
 		AccountIsNotTheOwner,
 		TransferOverflowOfKittyBalance,
 		TransferUnderflowOfKiittyBalance,
+		YouCantBuyYourOwnKitty,
+		KittyIsNotForSale,
 	}
 }
 
@@ -47,6 +49,7 @@ decl_event! {
 		KittyCreated(AccountId, Hash),
 		PriceSet(AccountId, Hash, Balance),
 		Transferred(AccountId, AccountId, Hash),
+		Bought(AccountId, AccountId, Hash, Balance),
 	}
 }
 
@@ -213,6 +216,39 @@ decl_module! {
 
 			Self::transfer_from(sender, to, kitty_id)?;
 
+			return Ok(());
+		}
+
+		#[weight = 20_000]
+		fn buy_kitty(origin, kitty_id: T::Hash, max_price: T::Balance) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			ensure!(Kitties::<T>::contains_key(kitty_id), Error::<T>::KittyDoesNotExist);
+
+			let owner = Self::owner_of(kitty_id).ok_or(Error::<T>::NoOwner)?;
+			ensure!(owner != sender, Error::<T>::YouCantBuyYourOwnKitty);
+
+			let mut kitty = Self::kitty(kitty_id);
+			let kitty_price = kitty.price;
+
+			ensure!(kitty_price == Into::<T::Balance>::into(0), Error::<T>::KittyIsNotForSale);
+			ensure!(kitty_price <= max_price, "The cat you want to buy costs more than your max price");
+
+			<pallet_balances::Module<T> as Currency<_>>::transfer(&sender, &owner, kitty_price, ExistenceRequirement::KeepAlive)?;
+
+			Self::transfer_from(owner.clone(), sender.clone(), kitty_id)
+				.expect("`owner` is shown to own the kitty; \
+				`owner` must have greater than 0 kitties, so transfer cannot cause underflow; \
+				`all_kitty_count` shares the same type as `owned_kitty_count` \
+				and minting ensure there won't ever be more than `max()` kitties, \
+				which means transfer cannot cause an overflow; \
+				qed");
+
+			kitty.price =Into::<T::Balance>::into(0);
+			Kitties::<T>::insert(kitty_id, kitty);
+
+			// Dispatch event
+			Self::deposit_event(RawEvent::Bought(sender, owner, kitty_id, kitty_price));
 			return Ok(());
 		}
 	}
