@@ -25,7 +25,9 @@ pub trait Trait: frame_system::Trait + pallet_balances::Trait {
 // Errors =================================================
 decl_error! {
 	pub enum Error for Module<T: Trait> {
-		KittyAlreadyExists
+		KittyAlreadyExists,
+		OverflowAddingToAccountBalance,
+		OverflowAddingToTotalSupply,
 	}
 }
 
@@ -58,7 +60,52 @@ decl_storage! {
 	}
 }
 
-// Functions ==============================================
+// Internal Functions =====================================
+impl<T: Trait> Module<T> {
+	fn mint(
+		to: T::AccountId,
+		kitty_id: T::Hash,
+		new_kitty: Kitty<T::Hash, T::Balance>,
+	) -> DispatchResult {
+		// Check that there is no kitty with this id
+		ensure!(
+			!KittyOwner::<T>::contains_key(kitty_id),
+			Error::<T>::KittyAlreadyExists
+		);
+
+		// Calculate the own kitties count +1
+		let owned_kitty_count = Self::owned_kitty_count(&to);
+		let new_owned_kitty_count = owned_kitty_count
+			.checked_add(1)
+			.ok_or(Error::<T>::OverflowAddingToAccountBalance)?;
+
+		// Calculate the total kitties count +1
+		let all_kitties_count = Self::all_kitties_count();
+		let new_all_kitties_count = all_kitties_count
+			.checked_add(1)
+			.ok_or(Error::<T>::OverflowAddingToTotalSupply)?;
+
+		// Add new kitty to owner and to total supply
+		Kitties::<T>::insert(kitty_id, new_kitty);
+		KittyOwner::<T>::insert(kitty_id, &to);
+
+		// Adds the kitty to the total "list"(~EnumerableStorageMap)
+		AllKittiesArray::<T>::insert(all_kitties_count, kitty_id);
+		AllKittiesCount::put(new_all_kitties_count);
+		AllKittiesIndex::<T>::insert(kitty_id, all_kitties_count);
+
+		// Adds the kitty to the owener "list"(~EnumerableStorageMap)
+		OwnedKittiesArray::<T>::insert((to.clone(), owned_kitty_count), kitty_id);
+		OwnedKittiesCount::<T>::insert(&to, new_owned_kitty_count);
+		OwnedKittiesIndex::<T>::insert(kitty_id, owned_kitty_count);
+
+		// Dispatch event
+		Self::deposit_event(RawEvent::KittyCreated(to, kitty_id));
+		return Ok(());
+	}
+}
+
+// Public Functions =======================================
 decl_module! {
 	pub struct Module<T: Trait> for enum Call where origin: T::Origin {
 		// Errors must be initialized if they are used by the pallet.
@@ -71,42 +118,19 @@ decl_module! {
 		fn create_kitty(origin) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
-			let owned_kitty_count = Self::owned_kitty_count(&sender);
-			let new_owned_kitty_count = owned_kitty_count.checked_add(1)
-			.ok_or("Overflow adding a new kitty to account balance")?;
-
-			// Get Kitties count
-			let all_kitties_count = Self::all_kitties_count();
-
-			let new_all_kitties_count = all_kitties_count.checked_add(1)
-			.ok_or("Overflow adding a new kitty to total supply")?;
-
-
 			let random_hash = <pallet_randomness_collective_flip::Module<T>>::random(&b"my context"[..]).using_encoded(<T as frame_system::Trait>::Hashing::hash);
-
-			ensure!(!KittyOwner::<T>::contains_key(random_hash), Error::<T>::KittyAlreadyExists);
 
 			let new_kitty = Kitty {
 				id: random_hash,
 				dna: random_hash,
-				price: Into::<T::Balance>::into(5),
+				price: Into::<T::Balance>::into(0),
 				gen:0,
 			};
 
-			Kitties::<T>::insert(random_hash, new_kitty);
-			KittyOwner::<T>::insert(random_hash, &sender);
-
-			AllKittiesArray::<T>::insert(all_kitties_count,random_hash);
-			AllKittiesCount::put(new_all_kitties_count);
-			AllKittiesIndex::<T>::insert(random_hash, all_kitties_count);
-
-			OwnedKittiesArray::<T>::insert((sender.clone(), owned_kitty_count),random_hash);
-			OwnedKittiesCount::<T>::insert(&sender, new_owned_kitty_count);
-			OwnedKittiesIndex::<T>::insert(random_hash, owned_kitty_count);
+			Self::mint(sender, random_hash, new_kitty)?;
 
 			Nonce::mutate(|x| *x += 1);
 
-			Self::deposit_event(RawEvent::KittyCreated(sender, random_hash));
 			return Ok(());
 		}
 	}
